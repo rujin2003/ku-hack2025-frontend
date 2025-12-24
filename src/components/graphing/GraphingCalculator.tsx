@@ -40,6 +40,8 @@ const GraphingCalculator: React.FC<GraphingCalculatorProps> = ({ onBack }) => {
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; screenX: number; screenY: number } | null>(null);
   const [animatingFunctionId, setAnimatingFunctionId] = useState<string | null>(null);
   const [animationProgress, setAnimationProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number; viewState: typeof viewState } | null>(null);
 
   // Save to localStorage
   useEffect(() => {
@@ -311,7 +313,19 @@ const GraphingCalculator: React.FC<GraphingCalculatorProps> = ({ onBack }) => {
     }
   }, [functions, viewState, animatingFunctionId, animationProgress, hoveredPoint]);
 
-  // Mouse move handler for coordinates
+  // Mouse handlers for panning and coordinates
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      viewState: { ...viewState }
+    });
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -320,14 +334,66 @@ const GraphingCalculator: React.FC<GraphingCalculatorProps> = ({ onBack }) => {
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
+    // Handle dragging for panning
+    if (isDragging && dragStart) {
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+
+      const xRange = dragStart.viewState.xMax - dragStart.viewState.xMin;
+      const yRange = dragStart.viewState.yMax - dragStart.viewState.yMin;
+
+      const xShift = -(dx / rect.width) * xRange;
+      const yShift = (dy / rect.height) * yRange;
+
+      setViewState({
+        xMin: dragStart.viewState.xMin + xShift,
+        xMax: dragStart.viewState.xMax + xShift,
+        yMin: dragStart.viewState.yMin + yShift,
+        yMax: dragStart.viewState.yMax + yShift,
+      });
+      return;
+    }
+
     const x = viewState.xMin + (screenX / rect.width) * (viewState.xMax - viewState.xMin);
     const y = viewState.yMax - (screenY / rect.height) * (viewState.yMax - viewState.yMin);
 
     setHoveredPoint({ x, y, screenX, screenY });
   };
 
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setDragStart(null);
+  };
+
   const handleMouseLeave = () => {
     setHoveredPoint(null);
+    setIsDragging(false);
+    setDragStart(null);
+  };
+
+  // Wheel handler for zooming
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Convert mouse position to graph coordinates
+    const graphX = viewState.xMin + (mouseX / rect.width) * (viewState.xMax - viewState.xMin);
+    const graphY = viewState.yMax - (mouseY / rect.height) * (viewState.yMax - viewState.yMin);
+
+    const factor = e.deltaY > 0 ? 1.1 : 0.9;
+    
+    // Zoom centered on mouse position
+    setViewState({
+      xMin: graphX - (graphX - viewState.xMin) * factor,
+      xMax: graphX + (viewState.xMax - graphX) * factor,
+      yMin: graphY - (graphY - viewState.yMin) * factor,
+      yMax: graphY + (viewState.yMax - graphY) * factor,
+    });
   };
 
   // Zoom handlers
@@ -508,9 +574,12 @@ const GraphingCalculator: React.FC<GraphingCalculatorProps> = ({ onBack }) => {
           <Card className="glass-strong h-full overflow-hidden relative">
             <canvas
               ref={canvasRef}
-              className="w-full h-full cursor-crosshair"
+              className={`w-full h-full ${isDragging ? 'cursor-grabbing' : 'cursor-crosshair'}`}
+              onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseLeave}
+              onWheel={handleWheel}
             />
 
             {/* Coordinates display */}

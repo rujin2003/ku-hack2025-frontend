@@ -1,9 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Paperclip, Mic, Calculator, Atom, Zap, LineChart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore, AppMode } from '@/stores/appStore';
+import { setSubject, getRouterResponse, getLLMResponse } from '@/lib/api';
+import { 
+  MessageLoader, 
+  SubjectSwitchLoader, 
+  ContainerRipple, 
+  EdgeGlow, 
+  SendButtonLoader,
+  ErrorMessage,
+  VisualizationPlaceholder 
+} from './LoadingIndicators';
 
 interface ChatInterfaceProps {
   onModeChange: (mode: AppMode) => void;
@@ -19,7 +29,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
   const [isExpanded, setIsExpanded] = useState(() => {
     return localStorage.getItem('chatExpanded') === 'true';
   });
+  const [isSwitchingSubject, setIsSwitchingSubject] = useState(false);
+  const [switchingModeId, setSwitchingModeId] = useState<AppMode | null>(null);
+  const [showContainerRipple, setShowContainerRipple] = useState(false);
+  const [isLongWait, setIsLongWait] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [lastQuestion, setLastQuestion] = useState('');
+  const [showVisualization, setShowVisualization] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const longWaitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fullPromptText = 'Ask me anything about Physics or Math!';
 
@@ -37,7 +55,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       } else {
         clearInterval(typingInterval);
         setTypingComplete(true);
-        // Fade out cursor after typing completes
         setTimeout(() => setShowCursor(false), 800);
       }
     }, 60);
@@ -57,10 +74,96 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
   // Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isTyping, showError, showVisualization]);
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return;
+  // Cleanup long wait timer
+  useEffect(() => {
+    return () => {
+      if (longWaitTimerRef.current) {
+        clearTimeout(longWaitTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Handle mode change with API call for Math/Physics
+  const handleModeSwitch = useCallback(async (newMode: AppMode) => {
+    // For Electrical and Graphs, just switch without API call
+    if (newMode === 'electrical' || newMode === 'graphs') {
+      onModeChange(newMode);
+      return;
+    }
+
+    // For Math/Physics, call the subject API
+    if (newMode === 'math' || newMode === 'physics') {
+      setIsSwitchingSubject(true);
+      setSwitchingModeId(newMode);
+      setShowContainerRipple(true);
+
+      try {
+        const subject = newMode === 'math' ? 'mathematics' : 'physics';
+        await setSubject(subject);
+        onModeChange(newMode);
+      } catch (error) {
+        console.error('Failed to switch subject:', error);
+        // Still switch mode even if API fails
+        onModeChange(newMode);
+      } finally {
+        setIsSwitchingSubject(false);
+        setSwitchingModeId(null);
+        setTimeout(() => setShowContainerRipple(false), 500);
+      }
+    }
+  }, [onModeChange]);
+
+  // Process chat message through router and LLM
+  const processMessage = useCallback(async (question: string) => {
+    setShowError(false);
+    setShowVisualization(false);
+    setIsTyping(true);
+    setIsLongWait(false);
+
+    // Start long wait timer (3 seconds)
+    longWaitTimerRef.current = setTimeout(() => {
+      setIsLongWait(true);
+    }, 3000);
+
+    try {
+      // Step 1: Get router response
+      const routerResponse = await getRouterResponse(question);
+      
+      // Step 2: Handle based on routing logic
+      if (routerResponse.response.explanation_needed) {
+        // Get LLM response for explanation
+        const llmResponse = await getLLMResponse(question);
+        
+        addMessage({
+          role: 'assistant',
+          content: llmResponse.llm_response,
+        });
+      } else if (routerResponse.response.visualization_needed) {
+        // Show visualization placeholder
+        setShowVisualization(true);
+      } else {
+        // Fallback response
+        addMessage({
+          role: 'assistant',
+          content: JSON.stringify(routerResponse.response),
+        });
+      }
+    } catch (error) {
+      console.error('Chat processing error:', error);
+      setShowError(true);
+    } finally {
+      if (longWaitTimerRef.current) {
+        clearTimeout(longWaitTimerRef.current);
+      }
+      setIsTyping(false);
+      setIsLongWait(false);
+    }
+  }, [addMessage, setIsTyping]);
+
+  const handleSend = useCallback(() => {
+    if (!inputValue.trim() || isTyping) return;
     
     // Expand on first message
     if (!isExpanded) {
@@ -68,19 +171,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       localStorage.setItem('chatExpanded', 'true');
     }
     
-    addMessage({ role: 'user', content: inputValue });
+    const question = inputValue.trim();
+    setLastQuestion(question);
+    addMessage({ role: 'user', content: question });
     setInputValue('');
-    setIsTyping(true);
+    
+    // Process through API
+    processMessage(question);
+  }, [inputValue, isTyping, isExpanded, addMessage, processMessage]);
 
-    // Simulate AI response
-    setTimeout(() => {
-      addMessage({
-        role: 'assistant',
-        content: "I'm a placeholder response. LLM integration coming in Phase 2! 🚀",
-      });
-      setIsTyping(false);
-    }, 1500);
-  };
+  const handleRetry = useCallback(() => {
+    if (lastQuestion) {
+      processMessage(lastQuestion);
+    }
+  }, [lastQuestion, processMessage]);
 
   const modes: { id: AppMode; label: string; icon: React.ElementType }[] = [
     { id: 'math', label: 'Math', icon: Calculator },
@@ -103,18 +207,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       >
         <div className="glass rounded-full p-1 flex gap-1">
           {modes.map((m) => (
-            <Button
-              key={m.id}
-              variant={mode === m.id ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => onModeChange(m.id)}
-              className={`rounded-full gap-2 transition-all ${
-                mode === m.id ? 'neon-glow-subtle' : ''
-              }`}
-            >
-              <m.icon className="h-4 w-4" />
-              <span className="hidden sm:inline">{m.label}</span>
-            </Button>
+            <div key={m.id} className="relative">
+              <Button
+                variant={mode === m.id ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => handleModeSwitch(m.id)}
+                disabled={isSwitchingSubject}
+                className={`rounded-full gap-2 transition-all ${
+                  mode === m.id ? 'neon-glow-subtle' : ''
+                }`}
+              >
+                <m.icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{m.label}</span>
+              </Button>
+              <AnimatePresence>
+                <SubjectSwitchLoader isActive={switchingModeId === m.id} />
+              </AnimatePresence>
+            </div>
           ))}
         </div>
       </motion.div>
@@ -138,7 +247,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
         className="w-full"
       >
         <motion.div 
-          className="glass-strong rounded-3xl overflow-hidden"
+          className="glass-strong rounded-3xl overflow-hidden relative"
           initial={{ boxShadow: '0 0 0px hsl(var(--primary) / 0)' }}
           animate={{
             boxShadow: isExpanded 
@@ -152,6 +261,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
             delay: 0.2
           }}
         >
+          {/* Subject switch ripple effect */}
+          <AnimatePresence>
+            <ContainerRipple isActive={showContainerRipple} />
+          </AnimatePresence>
+
+          {/* Long wait edge glow */}
+          <AnimatePresence>
+            <EdgeGlow isActive={isLongWait} />
+          </AnimatePresence>
+
           {/* Messages Area */}
           <motion.div 
             className="overflow-y-auto p-6 space-y-4"
@@ -202,52 +321,49 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
               </motion.div>
             )}
 
-            {messages.map((message, index) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, x: message.role === 'user' ? 20 : -20, scale: 0.95 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                transition={{ 
-                  type: 'spring', 
-                  stiffness: 300, 
-                  damping: 25,
-                  delay: index * 0.02 
-                }}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            <AnimatePresence mode="popLayout">
+              {messages.map((message, index) => (
                 <motion.div
-                  layout
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                    message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-secondary-foreground'
-                  }`}
+                  key={message.id}
+                  initial={{ opacity: 0, x: message.role === 'user' ? 20 : -20, scale: 0.95 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ 
+                    type: 'spring', 
+                    stiffness: 300, 
+                    damping: 25,
+                    delay: index * 0.02 
+                  }}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <p className="text-sm">{message.content}</p>
+                  <motion.div
+                    layout
+                    className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                      message.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-secondary-foreground'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  </motion.div>
                 </motion.div>
-              </motion.div>
-            ))}
+              ))}
+            </AnimatePresence>
 
-            {isTyping && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex justify-start"
-              >
-                <div className="bg-secondary rounded-2xl px-4 py-3">
-                  <div className="flex gap-1">
-                    {[0, 1, 2].map((i) => (
-                      <motion.div
-                        key={i}
-                        className="w-2 h-2 rounded-full bg-primary"
-                        animate={{ y: [0, -8, 0] }}
-                        transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            )}
+            {/* Loading indicator */}
+            <AnimatePresence>
+              {isTyping && <MessageLoader />}
+            </AnimatePresence>
+
+            {/* Error message */}
+            <AnimatePresence>
+              {showError && <ErrorMessage onRetry={handleRetry} />}
+            </AnimatePresence>
+
+            {/* Visualization placeholder */}
+            <AnimatePresence>
+              {showVisualization && <VisualizationPlaceholder />}
+            </AnimatePresence>
 
             <div ref={messagesEndRef} />
           </motion.div>
@@ -261,12 +377,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                 size="icon"
                 onClick={() => setIsLatexMode(!isLatexMode)}
                 className="shrink-0 h-10 w-10 rounded-full"
+                disabled={isTyping}
               >
                 <span className="text-xs font-mono">LaTeX</span>
               </Button>
 
               {/* File Upload */}
-              <Button variant="ghost" size="icon" className="shrink-0 h-10 w-10 rounded-full">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="shrink-0 h-10 w-10 rounded-full"
+                disabled={isTyping}
+              >
                 <Paperclip className="h-4 w-4" />
               </Button>
 
@@ -275,14 +397,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                 <Input
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
                   placeholder={isLatexMode ? 'Enter LaTeX expression...' : 'Ask a question...'}
-                  className="pr-12 h-12 rounded-full bg-secondary/50 border-border/50 focus:border-primary/50"
+                  className={`pr-12 h-12 rounded-full bg-secondary/50 border-border/50 focus:border-primary/50 transition-opacity ${
+                    isTyping ? 'opacity-50' : ''
+                  }`}
+                  disabled={isTyping}
                 />
                 <Button
                   variant="ghost"
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full"
+                  disabled={isTyping}
                 >
                   <Mic className="h-4 w-4" />
                 </Button>
@@ -293,9 +419,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                 onClick={handleSend}
                 size="icon"
                 className="shrink-0 h-12 w-12 rounded-full neon-glow-subtle"
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || isTyping}
               >
-                <Send className="h-5 w-5" />
+                <AnimatePresence mode="wait">
+                  {isTyping ? (
+                    <SendButtonLoader key="loader" />
+                  ) : (
+                    <motion.div
+                      key="send"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                    >
+                      <Send className="h-5 w-5" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </Button>
             </div>
           </div>

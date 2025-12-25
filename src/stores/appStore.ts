@@ -25,8 +25,20 @@ interface AppStore {
   setInitialMode: (mode: AppMode | null) => void;
 }
 
+const getInitialMode = (): AppMode => {
+  try {
+    const savedPreference = localStorage.getItem('selectedQuestionType');
+    if (savedPreference === 'math' || savedPreference === 'physics') {
+      return savedPreference;
+    }
+  } catch (e) {
+    // localStorage not available
+  }
+  return 'math';
+};
+
 export const useAppStore = create<AppStore>((set) => ({
-  mode: 'chat',
+  mode: getInitialMode(),
   isTransitioning: false,
   messages: [],
   isTyping: false,

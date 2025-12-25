@@ -36,26 +36,16 @@ const Index = () => {
   const handleOnboardingComplete = (data: { category: UserCategory; preference: SubjectPreference }) => {
     completeOnboarding(data);
     
-    // Map preference to app mode
+    // Map preference to app mode for the mode selector highlight
     const modeMap: Record<SubjectPreference, AppMode> = {
-      math: 'chat',
-      physics: 'chat',
+      math: 'math',
+      physics: 'physics',
       electrical: 'electrical',
     };
     
     const targetMode = modeMap[data.preference];
     setInitialMode(targetMode);
-    
-    // If special mode, trigger transition
-    if (targetMode === 'electrical') {
-      setTransitioning(true);
-      setTimeout(() => {
-        setMode('electrical');
-        setTimeout(() => setTransitioning(false), 500);
-      }, 300);
-    } else {
-      setMode(targetMode);
-    }
+    setMode(targetMode);
   };
 
   // Show loading state while checking localStorage
@@ -102,6 +92,8 @@ const Index = () => {
             <GraphingCalculator onBack={() => handleModeChange('chat')} />
           </motion.div>
         );
+      case 'math':
+      case 'physics':
       default:
         return (
           <motion.div

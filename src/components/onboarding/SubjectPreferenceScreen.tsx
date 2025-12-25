@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Calculator, Atom, Zap, ArrowLeft, Sparkles } from 'lucide-react';
+import { Calculator, Atom, ArrowLeft, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export type SubjectPreference = 'math' | 'physics' | 'electrical';
@@ -26,14 +26,6 @@ const subjects = [
     description: 'Mechanics, thermodynamics, waves, and modern physics',
     gradient: 'from-blue-500 via-indigo-500 to-purple-500',
     features: ['Mechanics', 'Optics', 'Quantum'],
-  },
-  {
-    id: 'electrical' as SubjectPreference,
-    icon: Zap,
-    title: 'Electrical Mode',
-    description: 'Interactive circuit simulation and analysis',
-    gradient: 'from-cyan-500 via-teal-500 to-green-500',
-    features: ['Circuits', 'Ohm\'s Law', 'Simulation'],
   },
 ];
 
@@ -67,7 +59,7 @@ const SubjectPreferenceScreen: React.FC<SubjectPreferenceScreenProps> = ({ onCom
         </motion.div>
 
         {/* Subject Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-10">
+        <div className="grid md:grid-cols-2 gap-6 mb-10 max-w-2xl mx-auto">
           {subjects.map((subject, index) => {
             const Icon = subject.icon;
             const isSelected = selected === subject.id;

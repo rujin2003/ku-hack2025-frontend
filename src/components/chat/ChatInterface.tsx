@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Mic, MicOff, Calculator, Atom, Zap, LineChart, MessageSquarePlus } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { Send, Mic, MicOff, Calculator, Atom, MessageSquarePlus, Zap, LineChart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore, AppMode } from '@/stores/appStore';
@@ -17,23 +16,21 @@ import {
   VideoErrorMessage,
 } from './LoadingIndicators';
 import ManimVideoPlayer from './ManimVideoPlayer';
+import SplitAnswerLayout from './SplitAnswerLayout';
+import TypingText from './TypingText';
+import feynmanLogo from '@/assets/feynman-logo.png';
 
 interface ChatInterfaceProps {
   onModeChange: (mode: AppMode) => void;
 }
 
-interface VideoMessage {
-  id: string;
-  videoUrl: string;
-}
-
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
-  const { messages, isTyping, addMessage, clearMessages, setIsTyping, mode } = useAppStore();
+  const { messages, isTyping, addMessage, updateMessage, clearMessages, setIsTyping, mode } = useAppStore();
   const [inputValue, setInputValue] = useState('');
   const [promptText, setPromptText] = useState('');
   const [showCursor, setShowCursor] = useState(true);
   const [typingComplete, setTypingComplete] = useState(false);
-  const [isLatexMode, setIsLatexMode] = useState(false);
+  
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -46,13 +43,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
   const [showError, setShowError] = useState(false);
   const [lastQuestion, setLastQuestion] = useState('');
   const [isGeneratingAnimation, setIsGeneratingAnimation] = useState(false);
-  const [videoMessages, setVideoMessages] = useState<VideoMessage[]>([]);
   const [showVideoError, setShowVideoError] = useState(false);
   const [pendingManimPrompt, setPendingManimPrompt] = useState<string | null>(null);
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const longWaitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fullPromptText = 'Ask me anything about Physics or Math!';
+  const fullPromptText = 'Ask me anything';
 
   // Typing animation for prompt text - plays on every page load
   useEffect(() => {
@@ -87,7 +84,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
   // Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping, showError, isGeneratingAnimation, videoMessages]);
+  }, [messages, isTyping, showError, isGeneratingAnimation]);
 
   // Cleanup long wait timer
   useEffect(() => {
@@ -163,7 +160,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       // Clear chat history when switching between Math/Physics
       clearMessages();
       setShowError(false);
-      setVideoMessages([]);
       setShowVideoError(false);
 
       try {
@@ -186,42 +182,51 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
   const handleNewChat = useCallback(() => {
     clearMessages();
     setShowError(false);
-    setVideoMessages([]);
     setShowVideoError(false);
     setIsExpanded(false);
     localStorage.setItem('chatExpanded', 'false');
   }, [clearMessages]);
 
-  // Generate Manim video
-  const generateVideo = useCallback(async (manimPrompt: string) => {
+  // Generate Manim video and attach to message
+  const generateVideoForMessage = useCallback(async (manimPrompt: string, messageId: string) => {
     setIsGeneratingAnimation(true);
     setShowVideoError(false);
     
+    // Mark message as loading video
+    updateMessage(messageId, { isVideoLoading: true });
+    
     try {
       const videoUrl = await generateManimVideo(manimPrompt);
-      const videoId = `video-${Date.now()}`;
-      setVideoMessages(prev => [...prev, { id: videoId, videoUrl }]);
+      updateMessage(messageId, { 
+        videoUrl, 
+        isVideoLoading: false,
+        videoError: false 
+      });
     } catch (error) {
       console.error('Manim video generation error:', error);
+      updateMessage(messageId, { 
+        isVideoLoading: false, 
+        videoError: true 
+      });
       setShowVideoError(true);
       setPendingManimPrompt(manimPrompt);
+      setPendingMessageId(messageId);
     } finally {
       setIsGeneratingAnimation(false);
     }
-  }, []);
+  }, [updateMessage]);
 
-  // Retry video generation
+  // Retry video generation for a specific message
   const handleRetryVideo = useCallback(() => {
-    if (pendingManimPrompt) {
-      generateVideo(pendingManimPrompt);
+    if (pendingManimPrompt && pendingMessageId) {
+      generateVideoForMessage(pendingManimPrompt, pendingMessageId);
     }
-  }, [pendingManimPrompt, generateVideo]);
+  }, [pendingManimPrompt, pendingMessageId, generateVideoForMessage]);
 
   // Process chat message through router and LLM
   const processMessage = useCallback(async (question: string) => {
     setShowError(false);
     setShowVideoError(false);
-    setVideoMessages([]);
     setIsTyping(true);
     setIsLongWait(false);
 
@@ -236,37 +241,53 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       const { explanation_needed, visualization_needed, manim_prompt } = routerResponse.response;
       
       // Step 2: Handle based on routing logic
-      if (explanation_needed) {
-        // Get LLM response for explanation
+      if (explanation_needed && visualization_needed && manim_prompt) {
+        // BOTH text and video needed - create combined message with split layout
         const llmResponse = await getLLMResponse(question);
         
-        addMessage({
+        // Add message with video loading state
+        const messageId = addMessage({
           role: 'assistant',
           content: llmResponse.llm_response,
+          isVideoLoading: true,
         });
         
-        // Step 3: If visualization is also needed, generate video after text
-        if (visualization_needed && manim_prompt) {
-          // Clear typing state before starting animation
-          setIsTyping(false);
-          if (longWaitTimerRef.current) {
-            clearTimeout(longWaitTimerRef.current);
-          }
-          setIsLongWait(false);
-          
-          // Generate video
-          await generateVideo(manim_prompt);
-        }
-      } else if (visualization_needed && manim_prompt) {
-        // Only visualization needed, no text explanation
+        // Clear typing state before starting animation
         setIsTyping(false);
         if (longWaitTimerRef.current) {
           clearTimeout(longWaitTimerRef.current);
         }
         setIsLongWait(false);
         
-        // Generate video directly
-        await generateVideo(manim_prompt);
+        // Generate video and attach to the same message
+        if (messageId) {
+          await generateVideoForMessage(manim_prompt, messageId);
+        }
+      } else if (explanation_needed) {
+        // Only text needed
+        const llmResponse = await getLLMResponse(question);
+        
+        addMessage({
+          role: 'assistant',
+          content: llmResponse.llm_response,
+        });
+      } else if (visualization_needed && manim_prompt) {
+        // Only visualization needed - create message with just video
+        const messageId = addMessage({
+          role: 'assistant',
+          content: '',
+          isVideoLoading: true,
+        });
+        
+        setIsTyping(false);
+        if (longWaitTimerRef.current) {
+          clearTimeout(longWaitTimerRef.current);
+        }
+        setIsLongWait(false);
+        
+        if (messageId) {
+          await generateVideoForMessage(manim_prompt, messageId);
+        }
       } else {
         // Fallback response
         addMessage({
@@ -284,7 +305,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
       setIsTyping(false);
       setIsLongWait(false);
     }
-  }, [addMessage, setIsTyping, generateVideo]);
+  }, [addMessage, setIsTyping, generateVideoForMessage]);
 
   const handleSend = useCallback(() => {
     if (!inputValue.trim() || isTyping || isGeneratingAnimation) return;
@@ -365,7 +386,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
           variant="outline"
           size="sm"
           onClick={handleNewChat}
-          disabled={isSwitchingSubject || isProcessing || (messages.length === 0 && videoMessages.length === 0)}
+          disabled={isSwitchingSubject || isProcessing || messages.length === 0}
           className="rounded-full gap-2 glass border-border/50 hover:border-primary/50 transition-all"
         >
           <MessageSquarePlus className="h-4 w-4" />
@@ -424,20 +445,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
             }}
             transition={{ type: 'spring', stiffness: 200, damping: 25 }}
           >
-            {messages.length === 0 && videoMessages.length === 0 && (
+            {messages.length === 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.3, ease: 'easeOut' }}
                 className="text-center text-muted-foreground py-12"
               >
-                {/* Bot Avatar with slide-up animation */}
+                {/* Feynman Logo with slide-up animation */}
                 <motion.div
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.2, ease: 'easeOut' }}
                 >
-                  <Atom className="h-12 w-12 mx-auto mb-4 text-primary opacity-50" />
+                  <img src={feynmanLogo} alt="Feynman" className="h-14 w-14 mx-auto mb-4" />
                 </motion.div>
                 
                 {/* Typing animation text */}
@@ -455,14 +476,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                   />
                 </motion.p>
                 
-                <motion.p 
-                  className="text-sm mt-2 opacity-60"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: typingComplete ? 0.6 : 0 }}
-                  transition={{ duration: 0.4, delay: 0.2 }}
-                >
-                  Or switch to Electrical Mode for circuit simulation
-                </motion.p>
               </motion.div>
             )}
 
@@ -479,24 +492,54 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                     damping: 25,
                     delay: index * 0.02 
                   }}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start w-full'}`}
                 >
-                  <motion.div
-                    layout
-                    className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                      message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-secondary-foreground'
-                    }`}
-                  >
-                    {message.role === 'user' ? (
+                  {message.role === 'user' ? (
+                    <motion.div
+                      layout
+                      className="max-w-[80%] rounded-2xl px-4 py-3 bg-primary text-primary-foreground"
+                    >
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    </motion.div>
+                  ) : (
+                    // Assistant message - check if it has video for split layout
+                    message.videoUrl || message.isVideoLoading ? (
+                      <SplitAnswerLayout
+                        textContent={message.content}
+                        videoUrl={message.videoUrl || null}
+                        isVideoLoading={message.isVideoLoading}
+                        videoError={message.videoError}
+                        onVideoRetry={handleRetryVideo}
+                        messageId={message.id}
+                      />
+                    ) : message.content ? (
+                      // Text-only response with typing animation
+                      <motion.div
+                        layout
+                        className="w-full max-w-[90%]"
+                      >
+                        <div className="glass-strong rounded-2xl p-5">
+                          <motion.div
+                            className="flex items-center gap-2 mb-4 pb-3 border-b border-border/30"
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                          >
+                            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                              Response
+                            </span>
+                          </motion.div>
+                          <TypingText content={message.content} messageId={message.id} typingSpeed={6} />
+                        </div>
+                      </motion.div>
                     ) : (
-                      <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-background/50 prose-pre:p-2">
-                        <ReactMarkdown>{message.content}</ReactMarkdown>
-                      </div>
-                    )}
-                  </motion.div>
+                      // Video-only response (rare)
+                      message.videoUrl && (
+                        <ManimVideoPlayer videoUrl={message.videoUrl} />
+                      )
+                    )
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -511,16 +554,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
               {showError && <ErrorMessage onRetry={handleRetry} />}
             </AnimatePresence>
 
-            {/* Animation loading indicator */}
+            {/* Animation loading indicator - only show when not attached to a message */}
             <AnimatePresence>
-              {isGeneratingAnimation && <AnimationLoader />}
-            </AnimatePresence>
-
-            {/* Video messages */}
-            <AnimatePresence>
-              {videoMessages.map((video) => (
-                <ManimVideoPlayer key={video.id} videoUrl={video.videoUrl} />
-              ))}
+              {isGeneratingAnimation && !messages.some(m => m.isVideoLoading) && <AnimationLoader />}
             </AnimatePresence>
 
             {/* Video error message */}
@@ -534,16 +570,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
           {/* Input Area */}
           <div className="border-t border-border/50 p-4">
             <div className="flex items-center gap-3">
-              {/* LaTeX Toggle */}
-              <Button
-                variant={isLatexMode ? 'default' : 'ghost'}
-                size="icon"
-                onClick={() => setIsLatexMode(!isLatexMode)}
-                className="shrink-0 h-10 w-10 rounded-full"
-                disabled={isProcessing}
-              >
-                <span className="text-xs font-mono">LaTeX</span>
-              </Button>
 
               {/* Voice Input */}
               <Button 
@@ -564,7 +590,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onModeChange }) => {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                  placeholder={isListening ? 'Listening...' : (isLatexMode ? 'Enter LaTeX expression...' : 'Ask a question...')}
+                  placeholder={isListening ? 'Listening...' : 'Ask a question...'}
                   className={`h-12 rounded-full bg-secondary/50 border-border/50 focus:border-primary/50 transition-opacity ${
                     isProcessing ? 'opacity-50' : ''
                   }`}

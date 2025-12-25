@@ -7,6 +7,10 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  // For combined text+video responses
+  videoUrl?: string;
+  isVideoLoading?: boolean;
+  videoError?: boolean;
 }
 
 interface AppStore {
@@ -19,7 +23,8 @@ interface AppStore {
   
   setMode: (mode: AppMode) => void;
   setTransitioning: (isTransitioning: boolean) => void;
-  addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
+  addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => string;
+  updateMessage: (id: string, updates: Partial<Message>) => void;
   clearMessages: () => void;
   setIsTyping: (isTyping: boolean) => void;
   setShowWelcome: (show: boolean) => void;
@@ -58,6 +63,15 @@ export const useAppStore = create<AppStore>((set) => ({
     };
     set((state) => ({
       messages: [...state.messages, newMessage],
+    }));
+    return newMessage.id;
+  },
+
+  updateMessage: (id, updates) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === id ? { ...msg, ...updates } : msg
+      ),
     }));
   },
   

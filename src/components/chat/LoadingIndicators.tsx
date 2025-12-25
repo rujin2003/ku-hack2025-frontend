@@ -2,53 +2,28 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
-// Premium AI message loader with skeleton and glowing dots
+// Simple chat-bubble typing indicator (WhatsApp/iMessage style)
 export const MessageLoader: React.FC = () => {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -5, scale: 0.95 }}
       className="flex justify-start"
     >
-      <div className="bg-secondary rounded-2xl px-5 py-4 max-w-[80%] relative overflow-hidden">
-        {/* Circular ripple effect */}
-        <motion.div
-          className="absolute inset-0 rounded-2xl"
-          style={{
-            background: 'radial-gradient(circle at center, hsl(var(--primary) / 0.1) 0%, transparent 70%)',
-          }}
-          animate={{
-            scale: [1, 1.5, 1],
-            opacity: [0.3, 0, 0.3],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: 'easeInOut',
-          }}
-        />
-        
-        {/* Glowing bouncing dots */}
-        <div className="flex gap-1.5 mb-3">
+      <div className="bg-secondary rounded-2xl px-4 py-3">
+        {/* Three bouncing dots */}
+        <div className="flex gap-1">
           {[0, 1, 2].map((i) => (
             <motion.div
               key={i}
-              className="w-2.5 h-2.5 rounded-full bg-primary"
-              style={{
-                boxShadow: '0 0 8px hsl(var(--primary) / 0.6)',
-              }}
+              className="w-2 h-2 rounded-full bg-muted-foreground/60"
               animate={{ 
-                y: [0, -10, 0],
-                scale: [1, 1.2, 1],
-                boxShadow: [
-                  '0 0 8px hsl(var(--primary) / 0.6)',
-                  '0 0 16px hsl(var(--primary) / 0.9)',
-                  '0 0 8px hsl(var(--primary) / 0.6)',
-                ],
+                y: [0, -6, 0],
+                opacity: [0.6, 1, 0.6],
               }}
               transition={{ 
-                duration: 0.7, 
+                duration: 0.6, 
                 repeat: Infinity, 
                 delay: i * 0.15,
                 ease: 'easeInOut',
@@ -56,56 +31,68 @@ export const MessageLoader: React.FC = () => {
             />
           ))}
         </div>
-        
-        {/* Animated gradient skeleton paragraphs */}
-        <div className="space-y-2">
-          <motion.div
-            className="h-3 rounded-full"
-            style={{
-              background: 'linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground) / 0.2) 50%, hsl(var(--muted)) 100%)',
-              backgroundSize: '200% 100%',
-            }}
-            animate={{
-              backgroundPosition: ['200% 0', '-200% 0'],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'linear',
-            }}
-          />
-          <motion.div
-            className="h-3 rounded-full w-4/5"
-            style={{
-              background: 'linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground) / 0.2) 50%, hsl(var(--muted)) 100%)',
-              backgroundSize: '200% 100%',
-            }}
-            animate={{
-              backgroundPosition: ['200% 0', '-200% 0'],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'linear',
-              delay: 0.2,
-            }}
-          />
-          <motion.div
-            className="h-3 rounded-full w-3/5"
-            style={{
-              background: 'linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground) / 0.2) 50%, hsl(var(--muted)) 100%)',
-              backgroundSize: '200% 100%',
-            }}
-            animate={{
-              backgroundPosition: ['200% 0', '-200% 0'],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'linear',
-              delay: 0.4,
-            }}
-          />
+      </div>
+    </motion.div>
+  );
+};
+
+// Animation generation loader with orbiting sparkles
+export const AnimationLoader: React.FC = () => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -5, scale: 0.95 }}
+      className="flex justify-start"
+    >
+      <div className="glass rounded-2xl px-4 py-3 border border-primary/20">
+        <div className="flex items-center gap-3">
+          {/* Orbiting sparkles animation */}
+          <div className="relative w-6 h-6">
+            {/* Center dot */}
+            <motion.div
+              className="absolute top-1/2 left-1/2 w-2 h-2 rounded-full bg-primary"
+              style={{ transform: 'translate(-50%, -50%)' }}
+              animate={{
+                scale: [1, 1.2, 1],
+                opacity: [0.7, 1, 0.7],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            />
+            
+            {/* Orbiting sparkles */}
+            {[0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                className="absolute w-1.5 h-1.5 rounded-full bg-primary"
+                style={{
+                  top: '50%',
+                  left: '50%',
+                }}
+                animate={{
+                  rotate: [0, 360],
+                  x: [0, Math.cos((i * 2 * Math.PI) / 3) * 10, 0],
+                  y: [0, Math.sin((i * 2 * Math.PI) / 3) * 10, 0],
+                  opacity: [0.4, 1, 0.4],
+                  scale: [0.8, 1.2, 0.8],
+                }}
+                transition={{
+                  duration: 1.2,
+                  repeat: Infinity,
+                  delay: i * 0.4,
+                  ease: 'easeInOut',
+                }}
+              />
+            ))}
+          </div>
+          
+          <span className="text-sm text-primary/80 font-medium">
+            Rendering animation…
+          </span>
         </div>
       </div>
     </motion.div>
@@ -241,7 +228,33 @@ export const ErrorMessage: React.FC<{ onRetry: () => void }> = ({ onRetry }) => 
   );
 };
 
-// Visualization placeholder
+// Video generation error with retry
+export const VideoErrorMessage: React.FC<{ onRetry: () => void }> = ({ onRetry }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="flex justify-start"
+    >
+      <div className="glass border border-border/30 rounded-2xl px-4 py-3 max-w-[80%]">
+        <p className="text-sm text-muted-foreground mb-2">
+          Couldn't generate animation right now. Here's the explanation instead.
+        </p>
+        <motion.button
+          onClick={onRetry}
+          className="text-xs px-3 py-1.5 rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          Try Again
+        </motion.button>
+      </div>
+    </motion.div>
+  );
+};
+
+// Visualization placeholder (deprecated - kept for backwards compatibility)
 export const VisualizationPlaceholder: React.FC = () => {
   return (
     <motion.div

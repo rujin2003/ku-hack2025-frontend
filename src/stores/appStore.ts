@@ -20,6 +20,7 @@ interface AppStore {
   setMode: (mode: AppMode) => void;
   setTransitioning: (isTransitioning: boolean) => void;
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
+  clearMessages: () => void;
   setIsTyping: (isTyping: boolean) => void;
   setShowWelcome: (show: boolean) => void;
   setInitialMode: (mode: AppMode | null) => void;
@@ -59,6 +60,8 @@ export const useAppStore = create<AppStore>((set) => ({
       messages: [...state.messages, newMessage],
     }));
   },
+  
+  clearMessages: () => set({ messages: [] }),
   
   setIsTyping: (isTyping) => set({ isTyping }),
   

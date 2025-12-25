@@ -1,5 +1,6 @@
 // API Service for backend communication
 const BASE_URL = 'https://elvina-semijuridical-ungloweringly.ngrok-free.dev';
+const MANIM_URL = 'https://wearisome-halle-marbly.ngrok-free.dev';
 
 export interface RouterResponse {
   question: string;
@@ -71,4 +72,32 @@ export const getLLMResponse = async (question: string): Promise<LLMResponse> => 
   }
 
   return response.json();
+};
+
+// Generate Manim animation video - uses arrayBuffer for reliable binary handling
+export const generateManimVideo = async (manimPrompt: string): Promise<string> => {
+  const response = await fetch(`${MANIM_URL}/generate-video`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: JSON.stringify({ manim_prompt: manimPrompt }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Manim video generation failed: ${response.statusText}`);
+  }
+
+  // Use arrayBuffer for reliable binary handling with ngrok
+  const buffer = await response.arrayBuffer();
+  
+  // Validate buffer size to prevent zero-length video issues
+  if (buffer.byteLength < 5000) {
+    throw new Error('Video too small — invalid file returned');
+  }
+
+  // Convert ArrayBuffer to Blob then to ObjectURL
+  const blob = new Blob([buffer], { type: 'video/mp4' });
+  return URL.createObjectURL(blob);
 };
